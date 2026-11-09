@@ -13,7 +13,7 @@ const opts = (o, sel) => Object.keys(o).map(k => `<option value="${k}"${k === se
 const pc = x => { x = Math.round(x); return Math.floor(x / 60) + ":" + pad(x % 60); };
 const parsePace = t => { const m = /^(\d{1,2}):([0-5]\d)$/.exec(String(t).trim()); return m ? +m[1] * 60 + +m[2] : null; };
 
-let ath = null, ref = new Date(), view = "list", sel = null, ro = true, host = null, adding = null, editing = null, openDay = null, cache = [], items = [], wf = {};
+let ath = null, ref = new Date(), view = "list", sel = null, ro = true, host = null, adding = null, editing = null, openDay = null, cache = [], raceCache = [], items = [], wf = {};
 
 document.head.insertAdjacentHTML("beforeend", "<style>" +
 ".cal .wkbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 4px}" +
@@ -39,6 +39,8 @@ document.head.insertAdjacentHTML("beforeend", "<style>" +
 ".cal .tile .dn{font-weight:700;font-size:13px}" +
 ".cal .chip{display:block;border-radius:3px;padding:2px 5px;font-size:12px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
 ".cal .wk .chip{white-space:normal}.cal .chip small{display:block;opacity:.9}.cal .legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}.cal .edited{font-size:13px;font-weight:600;margin-top:4px}" +
+".cal .race{background:var(--asphalt);color:#fff;border-radius:4px;padding:10px 12px;margin:6px 0;border-left:6px solid var(--lane)}.cal .race .muted{color:#c4ccd4}.cal .race .cdb{font-family:var(--display);font-size:20px;color:var(--lane)}.cal .race .btn{margin-top:8px;color:#fff;border-color:#59636e}" +
+".cal .chip.rc{background:#161c24;color:#d6ff3f;outline:1px solid #d6ff3f}.cal .ver{border-top:1px dashed var(--line);margin-top:8px;padding-top:8px}.cal input[type=date]{font:inherit;color:var(--ink);background:var(--track);border:1px solid var(--line);border-radius:4px;padding:8px}" +
 ".modal{position:fixed;inset:0;background:rgba(10,14,18,.6);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto;z-index:50}.modal .mbox{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:16px;width:100%;max-width:680px}.modal .mx{float:right}" +
 "@media(max-width:720px){.cal .mgrid.wk{grid-template-columns:1fr}.cal .mgrid.wk .tile{min-height:0}.cal .tile{min-height:56px}.cal .chip{font-size:11px}}" +
 "</style>");
@@ -65,11 +67,12 @@ function woHtml(w) {
   const top = all.filter(s => !s.parent_id), c = COL[w.day_type] || COL.other;
   const when = w.last_edited_at ? " · " + new Date(w.last_edited_at).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
   return `<div class="wo"><div><span class="t">${esc(w.title)}</span><span class="tag" style="background:${c[0]};color:${c[1]}">${esc(TYPES[w.day_type])}</span></div>` +
-    (w.athlete_edited ? `<div class="edited">✎ ${ro ? "Zmieniono przez Ciebie, trener to widzi" : "Zmienione przez zawodnika"}${when}</div>` : "") +
+    (w.athlete_edited ? `<div class="edited">✎ ${ro ? "Zmieniono przez Ciebie" : "Zmienione przez zawodnika"}${when}</div>` : "") +
     (w.notes ? `<div class="muted">${esc(w.notes)}</div>` : "") +
     (top.length ? `<ul>${top.map(li).join("")}</ul>` : "") +
     `<div class="sr"><button class="btn ghost" data-edit="${esc(w.id)}">Edytuj</button>` +
-    (ro ? "" : (w.athlete_edited ? `<button class="btn ghost" data-seen="${esc(w.id)}">Oznacz jako przejrzane</button>` : "") + `<button class="btn ghost" data-del="${esc(w.id)}">Usuń trening</button>`) + `</div></div>`;
+    (w.workout_versions && w.workout_versions.length ? `<button class="btn ghost" data-hist="${esc(w.id)}">Historia zmian (${w.workout_versions.length})</button>` : "") +
+    (ro ? "" : (w.athlete_edited ? `<button class="btn ghost" data-seen="${esc(w.id)}">Oznacz jako przejrzane</button>` : "") + `<button class="btn ghost" data-del="${esc(w.id)}">Usuń trening</button>`) + `</div><div class="hist"></div></div>`;
 }
 
 /* ---------- Widoki kalendarza ---------- */
@@ -90,10 +93,18 @@ function km(w) {
   return m ? " · ok. " + (Math.round(m / 100) / 10).toString().replace(".", ",") + " km" : "";
 }
 const chip = (w, full) => `<span class="chip" style="background:${COL[w.day_type][0]};color:${COL[w.day_type][1]}"><b>${esc(w.title)}${w.athlete_edited ? " ✎" : ""}</b>${full ? `<small>${esc(TYPES[w.day_type])}${km(w)}</small>` : ""}</span>`;
+const today0 = () => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); };
+const daysTo = k => Math.round((toD(k) - today0()) / 864e5);
+const cd = n => n === 0 ? "dziś!" : n === 1 ? "jutro" : n > 0 ? "za " + n + " dni" : n === -1 ? "wczoraj" : (-n) + " dni temu";
+const kmTxt = m => m ? String(+(m / 1000).toFixed(3)).replace(".", ",") + " km" : "";
+const canDel = r => r.athlete_id === profile.id || r.created_by === profile.id;
+const raceHtml = r => `<div class="race"><b>Start: ${esc(r.name)}</b><div class="muted">${esc([r.location, kmTxt(r.distance_m), toD(r.race_date).toLocaleDateString("pl-PL", { day: "numeric", month: "long", year: "numeric" })].filter(Boolean).join(" · "))}</div><div class="cdb">${cd(daysTo(r.race_date))}</div>` +
+  (canDel(r) ? `<button class="btn ghost" data-rdel="${esc(r.id)}">Usuń start</button>` : "") + `</div>`;
 const dayBlock = (d, ws, today) => { const k = iso(d);
   return `<div class="day${k === today ? " today" : ""}" data-d="${k}"><h4>${wd(d)}, ${fd(d)}</h4>` +
+    raceCache.filter(r => r.race_date === k).map(raceHtml).join("") +
     (ws.length ? ws.map(woHtml).join("") : '<div class="muted">Brak zaplanowanego treningu</div>') +
-    (ro ? "" : `<button class="btn ghost" data-add="${k}">Dodaj trening</button>`) + `<div class="slot"></div></div>`; };
+    `<div class="sr">` + (ro ? "" : `<button class="btn ghost" data-add="${k}">Dodaj trening</button>`) + `<button class="btn ghost" data-race="${k}">Dodaj start</button></div><div class="slot"></div></div>`; };
 
 function shell() {
   host.innerHTML = `<div class="card cal"><h2>${ro ? "Mój kalendarz" : "Kalendarz zawodnika"}</h2>` +
@@ -101,17 +112,19 @@ function shell() {
     `<div class="seg" role="group" aria-label="Widok kalendarza"><button data-v="list">Lista</button><button data-v="week">Tydzień</button><button data-v="month">Miesiąc</button></div>` +
     `<div class="wkbar"><button class="btn ghost" data-act="prev">Poprzedni</button><b id="calRange"></b>` +
     `<span><button class="btn ghost" data-act="today">Dziś</button> <button class="btn ghost" data-act="next">Następny</button></span></div>` +
-    `<div id="calBody"></div><div class="legend">${Object.keys(TYPES).map(k => `<span class="chip" style="background:${COL[k][0]};color:${COL[k][1]}">${TYPES[k]}</span>`).join("")}</div></div>`;
+    `<div id="calBody"></div><div id="upc"></div><div class="legend">${Object.keys(TYPES).map(k => `<span class="chip" style="background:${COL[k][0]};color:${COL[k][1]}">${TYPES[k]}</span>`).join("")}</div></div>`;
 }
 async function load() {
   const box = $("calBody");
   if (!ath) { box.innerHTML = '<p class="muted">Gdy pierwszy zawodnik dołączy do Twojej grupy, pojawi się tutaj.</p>'; return; }
   const [a, b] = range();
+  const rr = await db.from("races").select("*").eq("athlete_id", ath).order("race_date");
+  raceCache = rr.data || [];
   const { data, error } = await db.from("workouts")
-    .select("id, workout_date, title, day_type, notes, athlete_edited, last_edited_at, workout_steps(*)")
+    .select("id, workout_date, title, day_type, notes, athlete_edited, last_edited_at, workout_steps(*), workout_versions(id)")
     .eq("athlete_id", ath).gte("workout_date", iso(a)).lte("workout_date", iso(b)).order("created_at");
   if (error) { box.innerHTML = '<p class="muted">Nie udało się wczytać kalendarza. Odśwież stronę.</p>'; return; }
-  cache = data;
+  cache = data; renderUpcoming(); if (ro) renderRaceTab();
   const mth = view === "month";
   $("calRange").textContent = mth ? (t => t.charAt(0).toUpperCase() + t.slice(1))(ref.toLocaleDateString("pl-PL", { month: "long", year: "numeric" })) : fd(a) + " – " + fd(b);
   host.querySelectorAll("[data-v]").forEach(x => x.setAttribute("aria-pressed", x.dataset.v === view));
@@ -121,7 +134,7 @@ async function load() {
   if (!sel || sel < iso(a) || sel > iso(b)) sel = today >= iso(a) && today <= iso(b) ? today : iso(a);
   const cells = Array.from({ length: n }, (_, i) => {
     const d = addDays(a, i), k = iso(d), out = mth && d.getMonth() !== ref.getMonth();
-    return `<button class="tile${k === sel ? " sel" : ""}${k === today ? " today" : ""}${out ? " out" : ""}" data-t="${k}"><span class="dn">${mth ? d.getDate() : wd(d).slice(0, 3) + " " + d.getDate()}</span>${by(k).map(w => chip(w, !mth)).join("")}</button>`;
+    return `<button class="tile${k === sel ? " sel" : ""}${k === today ? " today" : ""}${out ? " out" : ""}" data-t="${k}"><span class="dn">${mth ? d.getDate() : wd(d).slice(0, 3) + " " + d.getDate()}</span>${raceCache.filter(r => r.race_date === k).map(r => `<span class="chip rc"><b>Start: ${esc(r.name)}</b>${mth ? "" : `<small>${esc(kmTxt(r.distance_m))}</small>`}</span>`).join("")}${by(k).map(w => chip(w, !mth)).join("")}</button>`;
   }).join("");
   box.innerHTML = (mth ? '<div class="mgrid mh">' + ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"].map(x => `<span>${x}</span>`).join("") + "</div>" : "") +
     `<div class="mgrid${mth ? "" : " wk"}">${cells}</div>`;
@@ -162,6 +175,43 @@ const repHtml = (r, i) => `<div class="rep"><div class="sr"><b>Powtórz</b><inpu
   r.steps.map((s, j) => rowHtml(s, i, j)).join("") +
   `<button class="btn ghost" data-i="${i}" data-act="achild">+ Krok w serii</button></div>`;
 const renderSteps = () => { $("steps").innerHTML = items.map((it, i) => it.repeat ? repHtml(it, i) : rowHtml(it, i)).join(""); };
+
+function renderUpcoming() {
+  const el = $("upc"); if (!el) return;
+  const up = raceCache.filter(r => daysTo(r.race_date) >= 0).slice(0, 3);
+  el.innerHTML = up.length ? '<h3 style="margin-top:16px">Najbliższe starty</h3>' + up.map(raceHtml).join("") : "";
+}
+function renderRaceTab() {
+  const el = $("raceList"); if (!el) return;
+  const up = raceCache.filter(r => daysTo(r.race_date) >= 0), past = raceCache.filter(r => daysTo(r.race_date) < 0).reverse();
+  el.innerHTML = (up.length ? up.map(raceHtml).join("") : '<div class="card muted">Nie masz jeszcze zaplanowanych startów.</div>') +
+    (past.length ? `<details class="card"><summary>Minione starty (${past.length})</summary>${past.map(raceHtml).join("")}</details>` : "");
+}
+function openRaceForm(k) {
+  document.querySelectorAll(".slot").forEach(x => x.innerHTML = ""); adding = null; editing = null;
+  document.querySelector(`[data-d="${k}"] .slot`).innerHTML = `<form class="form" data-rf="${k}"><div class="sr"><input type="text" name="n" placeholder="Nazwa zawodów" style="flex:1;min-width:180px" aria-label="Nazwa zawodów"></div>` +
+    `<div class="sr"><input type="text" name="l" placeholder="Lokalizacja" style="flex:1;min-width:160px" aria-label="Lokalizacja"><input type="text" name="d" inputmode="decimal" placeholder="Dystans (km)" aria-label="Dystans w kilometrach"></div>` +
+    `<div class="sr"><button class="btn" style="margin:0" type="submit">Zapisz start</button><button class="btn ghost" type="button" data-act="cancel">Anuluj</button></div><div class="msg" role="status"></div></form>`;
+}
+async function saveRace(f, k) {
+  const q = n => f.elements[n] ? f.elements[n].value.trim() : "", msg = f.querySelector(".msg"), name = q("n");
+  const fail = t => { msg.textContent = t; msg.className = "msg err"; };
+  const date = k || q("t"), dv = q("d").replace(",", "."), dist = dv === "" ? null : parseFloat(dv);
+  if (!name) return fail("Podaj nazwę zawodów.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail("Podaj datę startu.");
+  if (dist !== null && !(dist > 0)) return fail("Dystans podaj w kilometrach, np. 21,1.");
+  const { error } = await db.from("races").insert({ athlete_id: ath, created_by: profile.id, name, location: q("l"), race_date: date, distance_m: dist === null ? null : Math.round(dist * 1000) });
+  if (error) return fail("Nie udało się zapisać startu: " + error.message);
+  if (!k) f.reset();
+  adding = null; load();
+}
+function onSubmit(e) { const f = e.target.closest("form[data-rf]"); if (!f) return; e.preventDefault(); saveRace(f, f.dataset.rf); }
+const histHtml = v => {
+  const sn = v.snapshot || {}, st = (sn.steps || []).slice().sort((a, b) => a.position - b.position), top = st.filter(s => !s.parent_id);
+  const li = s => s.step_type === "repeat" ? `<li>${s.repeat_count}× (${st.filter(c => c.parent_id === s.id).map(stepTxt).join(" + ")})</li>` : `<li>${stepTxt(s)}</li>`;
+  return `<div class="ver"><div class="muted">Wersja sprzed zmiany z ${esc(new Date(v.created_at).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))} · zmienił(a): ${esc(v.profiles ? v.profiles.full_name : "—")}</div>` +
+    `<b>${esc(sn.title)}</b>${sn.notes ? `<div class="muted">${esc(sn.notes)}</div>` : ""}${top.length ? `<ul>${top.map(li).join("")}</ul>` : ""}</div>`;
+};
 
 function openForm(k, w) {
   document.querySelectorAll(".slot").forEach(x => x.innerHTML = "");
@@ -212,6 +262,8 @@ async function save() {
   if (err) return fail(err);
   const title = (wf.title || "").trim() || TYPES[wf.day_type];
   if (editing) {
+    const sn = await db.rpc("snapshot_workout", { wid });
+    if (sn.error) return fail("Nie udało się zapisać historii zmian: " + sn.error.message);
     const u = await db.from("workouts").update(ro ? { notes: wf.notes || "" } : { title, day_type: wf.day_type, notes: wf.notes || "" }).eq("id", wid);
     if (u.error) return fail("Nie udało się zapisać zmian: " + u.error.message);
     const d = await db.from("workout_steps").delete().eq("workout_id", wid);
@@ -243,6 +295,15 @@ async function onClick(e) {
   if (b.dataset.t) { adding = null; editing = null; return openModal(b.dataset.t); }
   if (b.dataset.edit) { const w = cache.find(x => x.id === b.dataset.edit); return w && openForm(w.workout_date, w); }
   if (b.dataset.seen) { await db.from("workouts").update({ athlete_edited: false }).eq("id", b.dataset.seen); return load(); }
+  if (b.dataset.race) return openRaceForm(b.dataset.race);
+  if (b.dataset.rdel) { if (!confirm("Usunąć ten start?")) return; await db.from("races").delete().eq("id", b.dataset.rdel); return load(); }
+  if (b.dataset.hist) {
+    const box = b.closest(".wo").querySelector(".hist");
+    if (box.innerHTML) { box.innerHTML = ""; return; }
+    const { data, error } = await db.from("workout_versions").select("id, created_at, snapshot, profiles!edited_by(full_name)").eq("workout_id", b.dataset.hist).order("created_at", { ascending: false });
+    box.innerHTML = error ? '<div class="muted">Nie udało się wczytać historii.</div>' : data.map(histHtml).join("");
+    return;
+  }
   if (b.dataset.add) return openForm(b.dataset.add);
   if (b.dataset.del) {
     if (!confirm("Usunąć ten trening?")) return;
@@ -270,17 +331,27 @@ async function onClick(e) {
 window.initCalendar = async function () {
   if (!profile) return;
   ro = profile.role !== "coach"; host = $(ro ? "athCal" : "coachCal"); ref = new Date(); sel = null; adding = null;
-  if (!host.dataset.ready) { host.dataset.ready = "1"; host.addEventListener("click", onClick); host.addEventListener("input", onInput); }
+  if (!host.dataset.ready) { host.dataset.ready = "1"; host.addEventListener("click", onClick); host.addEventListener("input", onInput); host.addEventListener("submit", onSubmit); }
   if (!$("modal")) {
     const m = document.createElement("div"); m.id = "modal"; m.className = "modal cal"; m.hidden = true;
     m.innerHTML = '<div class="mbox" role="dialog" aria-modal="true" aria-label="Trening"><button class="btn ghost mx" data-act="close">Zamknij</button><div id="mbody"></div></div>';
     document.body.appendChild(m);
     m.addEventListener("click", e => { if (e.target === m) closeModal(); else onClick(e); });
-    m.addEventListener("input", onInput);
+    m.addEventListener("input", onInput); m.addEventListener("submit", onSubmit);
     document.addEventListener("keydown", e => { if (e.key === "Escape" && openDay) closeModal(); });
   }
   shell();
-  if (ro) { ath = profile.id; return load(); }
+  if (ro) {
+    ath = profile.id; const rh = $("raceHost");
+    if (rh && !rh.dataset.ready) {
+      rh.dataset.ready = "1";
+      rh.innerHTML = `<div class="card"><h2>Dodaj start</h2><form data-rf="" novalidate><div class="inline"><div><label for="rn">Nazwa zawodów</label><input type="text" id="rn" name="n" style="width:100%"></div>` +
+        `<div><label for="rl">Lokalizacja</label><input type="text" id="rl" name="l" style="width:100%"></div></div><div class="inline"><div><label for="rt">Data</label><input type="date" id="rt" name="t"></div>` +
+        `<div><label for="rd">Dystans (km)</label><input type="text" id="rd" name="d" inputmode="decimal" style="width:100%"></div><button class="btn" type="submit">Dodaj start</button></div><div class="msg" role="status"></div></form></div><div id="raceList"></div>`;
+      rh.addEventListener("click", onClick); rh.addEventListener("submit", onSubmit);
+    }
+    return load();
+  }
   ath = null;
   const { data } = await db.from("group_members").select("user_id, profiles(full_name), groups(name)");
   const seen = new Map();
