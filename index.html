@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RunTeams</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --asphalt:#161c24; --track:#e4e8ec; --paper:#f6f8f9; --line:#cdd4db;
+  --lane:#d6ff3f; --ink:#161c24; --muted:#5a6672; --err:#b3261e; --ok:#1d6b3a;
+  --display:"Archivo","Arial Narrow",Arial,sans-serif;
+  --body:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{--track:#10151b; --paper:#1a222b; --line:#2e3944; --ink:#eef2f5; --muted:#9aa7b3; --err:#ff8a80; --ok:#7bd69a}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--track);color:var(--ink);font:16px/1.5 var(--body);min-height:100vh}
+h1,h2,h3{font-family:var(--display);margin:0;line-height:1.05;letter-spacing:-.01em}
+.wrap{max-width:880px;margin:0 auto;padding:20px 16px 64px}
+.brand{font-family:var(--display);font-weight:900;font-stretch:75%;font-size:30px}
+.brand i{font-style:normal;background:var(--lane);color:#161c24;padding:0 7px;margin-left:2px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0 20px}
+.who{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--muted)}
+.who b{color:var(--ink)}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:20px;margin-bottom:16px}
+.hero{background:var(--asphalt);color:#fff;border-radius:6px;padding:28px 22px;margin-bottom:16px;border-bottom:6px solid var(--lane)}
+.hero h1{font-weight:900;font-stretch:75%;font-size:clamp(32px,7vw,52px);max-width:14ch}
+.hero p{margin:12px 0 0;color:#c4ccd4;max-width:46ch}
+label{display:block;font-size:14px;font-weight:600;margin:14px 0 4px}
+input[type=text],input[type=email],input[type=password]{width:100%;padding:11px 12px;font:inherit;color:var(--ink);background:var(--track);border:1px solid var(--line);border-radius:4px}
+input:focus-visible,button:focus-visible{outline:3px solid var(--lane);outline-offset:2px;box-shadow:0 0 0 1px var(--asphalt)}
+.roles{display:flex;gap:10px;margin-top:6px}
+.roles label{flex:1;margin:0;border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-weight:500;cursor:pointer;display:flex;gap:8px;align-items:center}
+.roles input:checked+span{font-weight:700}
+.btn{font:inherit;font-weight:700;border:0;border-radius:4px;padding:11px 18px;cursor:pointer;background:var(--lane);color:#161c24;margin-top:16px}
+.btn.dark{background:var(--asphalt);color:#fff}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);margin:0;padding:7px 12px;font-weight:600;font-size:14px}
+.btn:disabled{opacity:.55;cursor:wait}
+.tabs{display:flex;gap:4px;margin-bottom:6px}
+.tabs button{flex:1;font:inherit;font-weight:700;padding:10px;border:0;border-bottom:3px solid var(--line);background:none;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected=true]{color:var(--ink);border-color:var(--lane)}
+.msg{margin-top:12px;font-size:14px;min-height:20px}
+.msg.err{color:var(--err)} .msg.ok{color:var(--ok)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.code{font-family:var(--display);font-weight:800;font-size:20px;letter-spacing:.14em;background:var(--lane);color:#161c24;padding:2px 10px;border-radius:3px}
+.grp-h{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.muted{color:var(--muted);font-size:14px}
+.inline{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.inline>div{flex:1;min-width:200px}
+.inline .btn{margin-top:0}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">Run<i>Teams</i></div>
+    <div class="who" id="who" hidden><span id="whoText"></span><button class="btn ghost" id="logout">Wyloguj</button></div>
+  </div>
+
+  <!-- Ekran logowania -->
+  <section id="auth" hidden>
+    <div class="hero">
+      <h1>Trening bez chaosu.</h1>
+      <p>Plany, treningi i rozmowy z grupą w jednym miejscu. Trener widzi wszystkich, zawodnik tylko siebie.</p>
+    </div>
+    <div class="card">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tabIn" aria-selected="true">Zaloguj się</button>
+        <button role="tab" id="tabUp" aria-selected="false">Załóż konto</button>
+      </div>
+      <form id="authForm" novalidate>
+        <div id="nameBox" hidden>
+          <label for="fullName">Imię i nazwisko</label>
+          <input type="text" id="fullName" autocomplete="name">
+          <label>Jestem</label>
+          <div class="roles">
+            <label><input type="radio" name="role" value="athlete" checked><span>Zawodnikiem</span></label>
+            <label><input type="radio" name="role" value="coach"><span>Trenerem</span></label>
+          </div>
+        </div>
+        <label for="email">Adres e-mail</label>
+        <input type="email" id="email" autocomplete="email">
+        <label for="password">Hasło (min. 8 znaków)</label>
+        <input type="password" id="password" autocomplete="current-password">
+        <button class="btn" id="authBtn" type="submit">Zaloguj się</button>
+        <div class="msg" id="authMsg" role="status"></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- Panel trenera -->
+  <section id="coach" hidden>
+    <div class="card">
+      <h2>Nowa grupa</h2>
+      <form id="newGroupForm" class="inline">
+        <div>
+          <label for="groupName">Nazwa grupy</label>
+          <input type="text" id="groupName" maxlength="60">
+        </div>
+        <button class="btn" type="submit">Utwórz grupę</button>
+      </form>
+      <div class="msg" id="coachMsg" role="status"></div>
+    </div>
+    <div id="groupList"></div>
+  </section>
+
+  <!-- Panel zawodnika -->
+  <section id="athlete" hidden>
+    <div class="card">
+      <h2>Dołącz do grupy</h2>
+      <p class="muted">Kod zaproszenia dostaniesz od swojego trenera.</p>
+      <form id="joinForm" class="inline">
+        <div>
+          <label for="joinCode">Kod zaproszenia</label>
+          <input type="text" id="joinCode" maxlength="16" autocapitalize="characters">
+        </div>
+        <button class="btn" type="submit">Dołącz</button>
+      </form>
+      <div class="msg" id="athMsg" role="status"></div>
+    </div>
+    <div id="myGroups"></div>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const SUPABASE_URL = "https://nhwosqbfbmoivlgspwmw.supabase.co";
+const SUPABASE_KEY = "sb_publishable_kPfbn2cwLtkIHso71iLKVw_DG-hb5uJ";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let mode = "in", profile = null;
+
+function say(el, text, kind){ el.textContent = text || ""; el.className = "msg" + (kind ? " " + kind : ""); }
+function show(which){
+  ["auth","coach","athlete"].forEach(id => $(id).hidden = id !== which);
+  $("who").hidden = which === "auth";
+}
+
+/* ---------- Logowanie / rejestracja ---------- */
+function setMode(m){
+  mode = m;
+  $("tabIn").setAttribute("aria-selected", m === "in");
+  $("tabUp").setAttribute("aria-selected", m === "up");
+  $("nameBox").hidden = m === "in";
+  $("authBtn").textContent = m === "in" ? "Zaloguj się" : "Załóż konto";
+  $("password").autocomplete = m === "in" ? "current-password" : "new-password";
+  say($("authMsg"), "");
+}
+$("tabIn").onclick = () => setMode("in");
+$("tabUp").onclick = () => setMode("up");
+
+$("authForm").onsubmit = async e => {
+  e.preventDefault();
+  const msg = $("authMsg"), btn = $("authBtn");
+  const email = $("email").value.trim(), password = $("password").value;
+  if (!email || password.length < 8) return say(msg, "Podaj adres e-mail i hasło (min. 8 znaków).", "err");
+  btn.disabled = true; say(msg, "");
+  if (mode === "up") {
+    const full_name = $("fullName").value.trim();
+    if (!full_name) { btn.disabled = false; return say(msg, "Podaj imię i nazwisko.", "err"); }
+    const role = document.querySelector('input[name=role]:checked').value;
+    const { data, error } = await db.auth.signUp({ email, password, options: { data: { full_name, role } } });
+    btn.disabled = false;
+    if (error) return say(msg, "Nie udało się założyć konta: " + error.message, "err");
+    if (!data.session) return say(msg, "Konto założone. Potwierdź adres e-mail w wiadomości, którą wysłaliśmy, i zaloguj się.", "ok");
+  } else {
+    const { error } = await db.auth.signInWithPassword({ email, password });
+    btn.disabled = false;
+    if (error) return say(msg, "Nie udało się zalogować. Sprawdź e-mail i hasło.", "err");
+  }
+};
+$("logout").onclick = () => db.auth.signOut();
+
+/* ---------- Start i zmiana sesji ---------- */
+async function route(session){
+  if (!session) { profile = null; return show("auth"); }
+  const { data, error } = await db.from("profiles").select("id, full_name, role").eq("id", session.user.id).single();
+  if (error || !data) { await db.auth.signOut(); return show("auth"); }
+  profile = data;
+  $("whoText").innerHTML = "<b>" + esc(profile.full_name) + "</b> · " + (profile.role === "coach" ? "trener" : "zawodnik");
+  if (profile.role === "coach") { show("coach"); loadCoach(); } else { show("athlete"); loadAthlete(); }
+}
+db.auth.onAuthStateChange((_event, session) => { setTimeout(() => route(session), 0); });
+db.auth.getSession().then(({ data }) => route(data.session));
+
+/* ---------- Trener ---------- */
+async function loadCoach(){
+  const { data, error } = await db.from("groups")
+    .select("id, name, invite_code, group_members(user_id, profiles(full_name))")
+    .order("created_at", { ascending: false });
+  const box = $("groupList");
+  if (error) return box.innerHTML = '<div class="card muted">Nie udało się wczytać grup. Odśwież stronę.</div>';
+  if (!data.length) return box.innerHTML = '<div class="card muted">Nie masz jeszcze żadnej grupy. Utwórz pierwszą powyżej, a potem wyślij zawodnikom kod zaproszenia.</div>';
+  box.innerHTML = data.map(g => `
+    <div class="card" data-g="${esc(g.id)}">
+      <div class="grp-h">
+        <h3>${esc(g.name)}</h3>
+        <div>Kod zaproszenia: <span class="code">${esc(g.invite_code)}</span></div>
+      </div>
+      <p class="muted">Zawodnicy w grupie: ${g.group_members.length}</p>
+      ${g.group_members.length ? g.group_members.map(m => `
+        <div class="row"><span>${esc(m.profiles ? m.profiles.full_name : "Zawodnik")}</span>
+        <button class="btn ghost" data-rm="${esc(m.user_id)}">Usuń z grupy</button></div>`).join("")
+        : '<p class="muted">Nikt jeszcze nie dołączył.</p>'}
+    </div>`).join("");
+}
+$("groupList").onclick = async e => {
+  const uid = e.target.dataset.rm; if (!uid) return;
+  const gid = e.target.closest("[data-g]").dataset.g;
+  if (!confirm("Usunąć zawodnika z grupy?")) return;
+  const { error } = await db.from("group_members").delete().eq("group_id", gid).eq("user_id", uid);
+  if (error) say($("coachMsg"), "Nie udało się usunąć zawodnika.", "err"); else loadCoach();
+};
+$("newGroupForm").onsubmit = async e => {
+  e.preventDefault();
+  const name = $("groupName").value.trim();
+  if (!name) return say($("coachMsg"), "Podaj nazwę grupy.", "err");
+  const { error } = await db.from("groups").insert({ name, coach_id: profile.id });
+  if (error) return say($("coachMsg"), "Nie udało się utworzyć grupy: " + error.message, "err");
+  $("groupName").value = ""; say($("coachMsg"), "Grupa utworzona.", "ok"); loadCoach();
+};
+
+/* ---------- Zawodnik ---------- */
+async function loadAthlete(){
+  const { data, error } = await db.from("group_members")
+    .select("group_id, groups(name, profiles!coach_id(full_name))");
+  const box = $("myGroups");
+  if (error) return box.innerHTML = '<div class="card muted">Nie udało się wczytać grup. Odśwież stronę.</div>';
+  if (!data.length) return box.innerHTML = '<div class="card muted">Nie należysz jeszcze do żadnej grupy.</div>';
+  box.innerHTML = data.map(m => `
+    <div class="card" data-g="${esc(m.group_id)}">
+      <div class="grp-h">
+        <div><h3>${esc(m.groups ? m.groups.name : "Grupa")}</h3>
+        <span class="muted">Trener: ${esc(m.groups && m.groups.profiles ? m.groups.profiles.full_name : "—")}</span></div>
+        <button class="btn ghost" data-leave="1">Opuść grupę</button>
+      </div>
+    </div>`).join("");
+}
+$("myGroups").onclick = async e => {
+  if (!e.target.dataset.leave) return;
+  const gid = e.target.closest("[data-g]").dataset.g;
+  if (!confirm("Na pewno chcesz opuścić tę grupę?")) return;
+  const { error } = await db.from("group_members").delete().eq("group_id", gid).eq("user_id", profile.id);
+  if (error) say($("athMsg"), "Nie udało się opuścić grupy.", "err"); else loadAthlete();
+};
+$("joinForm").onsubmit = async e => {
+  e.preventDefault();
+  const code = $("joinCode").value.trim();
+  if (!code) return say($("athMsg"), "Wpisz kod zaproszenia.", "err");
+  const { error } = await db.rpc("join_group", { code });
+  if (error) return say($("athMsg"), error.message, "err");
+  $("joinCode").value = ""; say($("athMsg"), "Dołączyłeś do grupy.", "ok"); loadAthlete();
+};
+</script>
+</body>
+</html>
