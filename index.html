@@ -108,6 +108,8 @@ details.card[open] summary{margin-bottom:6px}
     <div>
       <div data-pane="cal"><div id="coachCal"></div></div>
       <div data-pane="card" hidden><div id="cardHostC" class="cal"></div></div>
+      <div data-pane="msg" hidden><div id="chatHostC" class="cal"></div></div>
+      <div data-pane="board" hidden><div id="boardHostC" class="cal"></div></div>
       <div data-pane="groups" hidden>
         <div class="card">
           <h2>Nowa grupa</h2>
@@ -132,6 +134,8 @@ details.card[open] summary{margin-bottom:6px}
     <div>
       <div data-pane="cal"><div id="athCal"></div></div>
       <div data-pane="card" hidden><div id="cardHostA" class="cal"></div></div>
+      <div data-pane="msg" hidden><div id="chatHostA" class="cal"></div></div>
+      <div data-pane="board" hidden><div id="boardHostA" class="cal"></div></div>
       <div data-pane="act" hidden><div class="card"><h2>Aktywności</h2><p class="muted">Tu pojawią się Twoje treningi z zegarka (Garmin, Strava i inne). Ta funkcja jest w przygotowaniu.</p></div></div>
       <div data-pane="analysis" hidden><div class="card"><h2>Analiza</h2><p class="muted">Obciążenie, forma i realizacja planu. Wkrótce.</p></div></div>
       <div data-pane="races" hidden><div id="raceHost" class="cal"></div></div>
@@ -206,8 +210,8 @@ $("authForm").onsubmit = async e => {
 };
 $("logout").onclick = () => db.auth.signOut();
 
-const NAVS = { coach: [["cal","Kalendarz"],["card","Karta zawodnika"],["groups","Grupy"],["account","Konto"]],
-  athlete: [["cal","Kalendarz"],["card","Moja karta"],["act","Aktywności"],["analysis","Analiza"],["races","Starty"],["groups","Grupy"],["account","Konto"]] };
+const NAVS = { coach: [["cal","Kalendarz"],["card","Karta zawodnika"],["msg","Wiadomości"],["board","Tablica"],["groups","Grupy"],["account","Konto"]],
+  athlete: [["cal","Kalendarz"],["card","Moja karta"],["msg","Wiadomości"],["board","Tablica"],["act","Aktywności"],["analysis","Analiza"],["races","Starty"],["groups","Grupy"],["account","Konto"]] };
 function setPane(sec, name){
   const el = $(sec);
   el.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== name);
@@ -234,6 +238,7 @@ async function route(session){
   if (sec === "coach") loadCoach(); else loadAthlete();
   if (window.initCalendar) initCalendar();
   if (window.initCard) initCard();
+  if (window.initComms) initComms();
 }
 db.auth.onAuthStateChange((_event, session) => { setTimeout(() => route(session), 0); });
 db.auth.getSession().then(({ data }) => route(data.session));
@@ -311,5 +316,6 @@ $("joinForm").onsubmit = async e => {
 </script>
 <script src="kalendarz.js?v=5"></script>
 <script src="karta.js?v=1"></script>
+<script src="komunikacja.js?v=1"></script>
 </body>
 </html>
