@@ -1,7 +1,7 @@
 /* RunTeams - etap 2b: kalendarz tygodniowy i kreator treningu.
    Korzysta z db, profile, esc i $ zdefiniowanych w index.html. */
 (function () {
-const TYPES = { rest: "Odpoczynek", recovery: "Regeneracja", easy: "Rozbieganie", steady: "Średnia intensywność", tempo: "Tempo", intervals: "Interwały", speed: "Szybkość", long: "Długi bieg", race: "Zawody", strength: "Siła", other: "Inne" };
+const TYPES = { off: "Wolne", rest: "Odpoczynek", recovery: "Regeneracja", easy: "Rozbieganie", steady: "Średnia intensywność", tempo: "Tempo", intervals: "Interwały", speed: "Szybkość", long: "Długi bieg", race: "Zawody", group: "Trening wspólny", strength: "Siła", other: "Inne" };
 const STEPS = { warmup: "Rozgrzewka", run: "Bieg", recovery: "Regeneracja", rest: "Odpoczynek", cooldown: "Schłodzenie", other: "Inne" };
 const pad = n => String(n).padStart(2, "0");
 const iso = d => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
@@ -13,7 +13,7 @@ const opts = (o, sel) => Object.keys(o).map(k => `<option value="${k}"${k === se
 const pc = x => { x = Math.round(x); return Math.floor(x / 60) + ":" + pad(x % 60); };
 const parsePace = t => { const m = /^(\d{1,2}):([0-5]\d)$/.exec(String(t).trim()); return m ? +m[1] * 60 + +m[2] : null; };
 
-let ath = null, ref = new Date(), view = "list", sel = null, ro = true, host = null, adding = null, items = [], wf = {};
+let ath = null, ref = new Date(), view = "list", sel = null, ro = true, host = null, adding = null, editing = null, openDay = null, cache = [], items = [], wf = {};
 
 document.head.insertAdjacentHTML("beforeend", "<style>" +
 ".cal .wkbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 4px}" +
@@ -37,8 +37,9 @@ document.head.insertAdjacentHTML("beforeend", "<style>" +
 ".cal .tile{font:inherit;color:var(--ink);text-align:left;background:var(--track);border:1px solid var(--line);border-radius:4px;padding:4px;min-height:84px;cursor:pointer;display:flex;flex-direction:column;gap:3px;min-width:0}" +
 ".cal .wk .tile{min-height:150px}.cal .tile.out{opacity:.45}.cal .tile.today{border-color:var(--lane);border-width:2px}.cal .tile.sel{outline:3px solid var(--lane)}" +
 ".cal .tile .dn{font-weight:700;font-size:13px}" +
-".cal .chip{display:block;border-left:5px solid;background:var(--paper);border-radius:3px;padding:2px 5px;font-size:12px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
-".cal .wk .chip{white-space:normal}.cal .chip small{display:block;color:var(--muted)}.cal #dayDetail{margin-top:12px}" +
+".cal .chip{display:block;border-radius:3px;padding:2px 5px;font-size:12px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
+".cal .wk .chip{white-space:normal}.cal .chip small{display:block;opacity:.9}.cal .legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}.cal .edited{font-size:13px;font-weight:600;margin-top:4px}" +
+".modal{position:fixed;inset:0;background:rgba(10,14,18,.6);display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow:auto;z-index:50}.modal .mbox{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:16px;width:100%;max-width:680px}.modal .mx{float:right}" +
 "@media(max-width:720px){.cal .mgrid.wk{grid-template-columns:1fr}.cal .mgrid.wk .tile{min-height:0}.cal .tile{min-height:56px}.cal .chip{font-size:11px}}" +
 "</style>");
 
@@ -61,15 +62,18 @@ function woHtml(w) {
   const li = s => s.step_type === "repeat"
     ? `<li>${s.repeat_count}× (${all.filter(c => c.parent_id === s.id).map(stepTxt).join(" + ")})</li>`
     : `<li>${stepTxt(s)}</li>`;
-  const top = all.filter(s => !s.parent_id);
-  return `<div class="wo"><div><span class="t">${esc(w.title)}</span><span class="tag">${esc(TYPES[w.day_type])}</span></div>` +
+  const top = all.filter(s => !s.parent_id), c = COL[w.day_type] || COL.other;
+  const when = w.last_edited_at ? " · " + new Date(w.last_edited_at).toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  return `<div class="wo"><div><span class="t">${esc(w.title)}</span><span class="tag" style="background:${c[0]};color:${c[1]}">${esc(TYPES[w.day_type])}</span></div>` +
+    (w.athlete_edited ? `<div class="edited">✎ ${ro ? "Zmieniono przez Ciebie, trener to widzi" : "Zmienione przez zawodnika"}${when}</div>` : "") +
     (w.notes ? `<div class="muted">${esc(w.notes)}</div>` : "") +
     (top.length ? `<ul>${top.map(li).join("")}</ul>` : "") +
-    (ro ? "" : `<button class="btn ghost" data-del="${esc(w.id)}">Usuń trening</button>`) + `</div>`;
+    `<div class="sr"><button class="btn ghost" data-edit="${esc(w.id)}">Edytuj</button>` +
+    (ro ? "" : (w.athlete_edited ? `<button class="btn ghost" data-seen="${esc(w.id)}">Oznacz jako przejrzane</button>` : "") + `<button class="btn ghost" data-del="${esc(w.id)}">Usuń trening</button>`) + `</div></div>`;
 }
 
 /* ---------- Widoki kalendarza ---------- */
-const COL = { rest: "#8a96a3", recovery: "#4fb3a5", easy: "#5aa9e6", steady: "#e6c33c", tempo: "#f08a24", intervals: "#e5484d", speed: "#d6336c", long: "#8e6bd1", race: "#d6ff3f", strength: "#a07855", other: "#8a96a3" };
+const COL = { off: ["#00741E", "#fff"], rest: ["#92D050", "#161c24"], recovery: ["#4BACC6", "#161c24"], easy: ["#0070C0", "#fff"], steady: ["#FFC000", "#161c24"], tempo: ["#C00000", "#fff"], intervals: ["#FFC000", "#161c24"], speed: ["#FFC000", "#161c24"], long: ["#0070C0", "#fff"], race: ["#C00000", "#fff"], group: ["#7030A0", "#fff"], strength: ["#595959", "#fff"], other: ["#808080", "#fff"] };
 const ym = d => new Date(d.getFullYear(), d.getMonth(), 1);
 const toD = k => new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10));
 function range() {
@@ -85,7 +89,7 @@ function km(w) {
   all.filter(s => s.step_type === "repeat").forEach(r => all.filter(c => c.parent_id === r.id && c.duration_type === "distance").forEach(c => { m += +c.duration_value * r.repeat_count; }));
   return m ? " · ok. " + (Math.round(m / 100) / 10).toString().replace(".", ",") + " km" : "";
 }
-const chip = (w, full) => `<span class="chip" style="border-left-color:${COL[w.day_type]}"><b>${esc(w.title)}</b>${full ? `<small>${esc(TYPES[w.day_type])}${km(w)}</small>` : ""}</span>`;
+const chip = (w, full) => `<span class="chip" style="background:${COL[w.day_type][0]};color:${COL[w.day_type][1]}"><b>${esc(w.title)}${w.athlete_edited ? " ✎" : ""}</b>${full ? `<small>${esc(TYPES[w.day_type])}${km(w)}</small>` : ""}</span>`;
 const dayBlock = (d, ws, today) => { const k = iso(d);
   return `<div class="day${k === today ? " today" : ""}" data-d="${k}"><h4>${wd(d)}, ${fd(d)}</h4>` +
     (ws.length ? ws.map(woHtml).join("") : '<div class="muted">Brak zaplanowanego treningu</div>') +
@@ -97,16 +101,17 @@ function shell() {
     `<div class="seg" role="group" aria-label="Widok kalendarza"><button data-v="list">Lista</button><button data-v="week">Tydzień</button><button data-v="month">Miesiąc</button></div>` +
     `<div class="wkbar"><button class="btn ghost" data-act="prev">Poprzedni</button><b id="calRange"></b>` +
     `<span><button class="btn ghost" data-act="today">Dziś</button> <button class="btn ghost" data-act="next">Następny</button></span></div>` +
-    `<div id="calBody"></div></div>`;
+    `<div id="calBody"></div><div class="legend">${Object.keys(TYPES).map(k => `<span class="chip" style="background:${COL[k][0]};color:${COL[k][1]}">${TYPES[k]}</span>`).join("")}</div></div>`;
 }
 async function load() {
   const box = $("calBody");
   if (!ath) { box.innerHTML = '<p class="muted">Gdy pierwszy zawodnik dołączy do Twojej grupy, pojawi się tutaj.</p>'; return; }
   const [a, b] = range();
   const { data, error } = await db.from("workouts")
-    .select("id, workout_date, title, day_type, notes, workout_steps(*)")
+    .select("id, workout_date, title, day_type, notes, athlete_edited, last_edited_at, workout_steps(*)")
     .eq("athlete_id", ath).gte("workout_date", iso(a)).lte("workout_date", iso(b)).order("created_at");
   if (error) { box.innerHTML = '<p class="muted">Nie udało się wczytać kalendarza. Odśwież stronę.</p>'; return; }
+  cache = data;
   const mth = view === "month";
   $("calRange").textContent = mth ? (t => t.charAt(0).toUpperCase() + t.slice(1))(ref.toLocaleDateString("pl-PL", { month: "long", year: "numeric" })) : fd(a) + " – " + fd(b);
   host.querySelectorAll("[data-v]").forEach(x => x.setAttribute("aria-pressed", x.dataset.v === view));
@@ -119,7 +124,24 @@ async function load() {
     return `<button class="tile${k === sel ? " sel" : ""}${k === today ? " today" : ""}${out ? " out" : ""}" data-t="${k}"><span class="dn">${mth ? d.getDate() : wd(d).slice(0, 3) + " " + d.getDate()}</span>${by(k).map(w => chip(w, !mth)).join("")}</button>`;
   }).join("");
   box.innerHTML = (mth ? '<div class="mgrid mh">' + ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"].map(x => `<span>${x}</span>`).join("") + "</div>" : "") +
-    `<div class="mgrid${mth ? "" : " wk"}">${cells}</div><div id="dayDetail">${dayBlock(toD(sel), by(sel), today)}</div>`;
+    `<div class="mgrid${mth ? "" : " wk"}">${cells}</div>`;
+  if (openDay) renderModal();
+}
+function renderModal() { $("mbody").innerHTML = dayBlock(toD(openDay), cache.filter(w => w.workout_date === openDay), iso(new Date())); }
+function openModal(k) {
+  openDay = k; sel = k; $("modal").hidden = false; renderModal();
+  host.querySelectorAll(".tile").forEach(t => t.classList.toggle("sel", t.dataset.t === k));
+  $("modal").querySelector(".mx").focus();
+}
+function closeModal() { openDay = null; adding = null; editing = null; $("modal").hidden = true; }
+function fromSteps(w) {
+  const all = (w.workout_steps || []).slice().sort((a, b) => a.position - b.position);
+  const cv = s => ({ type: s.step_type, dtype: s.duration_type,
+    dval: s.duration_type === "distance" ? String(s.duration_value / 1000).replace(".", ",") : s.duration_type === "time" ? String(s.duration_value / 60).replace(".", ",") : "",
+    ttype: s.target_type, tmin: s.target_type === "pace" ? pc(s.target_min) : s.target_type === "hr" ? String(s.target_min) : "",
+    tmax: s.target_type === "pace" ? pc(s.target_max) : s.target_type === "hr" ? String(s.target_max) : "" });
+  return all.filter(s => !s.parent_id).map(s => s.step_type === "repeat"
+    ? { repeat: true, count: String(s.repeat_count), steps: all.filter(c => c.parent_id === s.id).map(cv) } : cv(s));
 }
 
 /* ---------- Kreator treningu ---------- */
@@ -141,22 +163,25 @@ const repHtml = (r, i) => `<div class="rep"><div class="sr"><b>Powtórz</b><inpu
   `<button class="btn ghost" data-i="${i}" data-act="achild">+ Krok w serii</button></div>`;
 const renderSteps = () => { $("steps").innerHTML = items.map((it, i) => it.repeat ? repHtml(it, i) : rowHtml(it, i)).join(""); };
 
-function openForm(k) {
-  host.querySelectorAll(".slot").forEach(s => s.innerHTML = "");
-  adding = k; items = [ns()]; wf = { title: "", day_type: "easy", notes: "" };
-  host.querySelector(`[data-d="${k}"] .slot`).innerHTML = `<div class="form"><div class="sr">` +
-    `<input type="text" data-w="title" placeholder="Nazwa treningu" style="flex:1;min-width:160px" aria-label="Nazwa treningu">` +
-    `<select data-w="day_type" aria-label="Rodzaj dnia">${opts(TYPES, "easy")}</select></div>` +
-    `<div class="sr"><input type="text" data-w="notes" placeholder="Notatka dla zawodnika (opcjonalnie)" style="flex:1;width:100%" aria-label="Notatka"></div>` +
+function openForm(k, w) {
+  document.querySelectorAll(".slot").forEach(x => x.innerHTML = "");
+  adding = k; editing = w ? w.id : null;
+  items = w ? fromSteps(w) : [ns()];
+  wf = w ? { title: w.title, day_type: w.day_type, notes: w.notes } : { title: "", day_type: "easy", notes: "" };
+  const dis = w && ro ? " disabled" : "";
+  document.querySelector(`[data-d="${k}"] .slot`).innerHTML = `<div class="form"><div class="sr">` +
+    `<input type="text" data-w="title" value="${esc(wf.title)}"${dis} placeholder="Nazwa treningu" style="flex:1;min-width:160px" aria-label="Nazwa treningu">` +
+    `<select data-w="day_type"${dis} aria-label="Rodzaj dnia">${opts(TYPES, wf.day_type)}</select></div>` +
+    `<div class="sr"><input type="text" data-w="notes" value="${esc(wf.notes)}" placeholder="Notatka (opcjonalnie)" style="flex:1;width:100%" aria-label="Notatka"></div>` +
     `<div id="steps"></div><div class="sr"><button class="btn ghost" data-act="astep">+ Krok</button><button class="btn ghost" data-act="arep">+ Powtórzenia</button></div>` +
-    `<div class="sr"><button class="btn" style="margin:0" data-act="save">Zapisz trening</button><button class="btn ghost" data-act="cancel">Anuluj</button></div>` +
+    `<div class="sr"><button class="btn" style="margin:0" data-act="save">${w ? "Zapisz zmiany" : "Zapisz trening"}</button><button class="btn ghost" data-act="cancel">Anuluj</button></div>` +
     `<div class="msg" id="wmsg" role="status"></div></div>`;
   renderSteps();
 }
 
 async function save() {
   const msg = $("wmsg"), fail = t => { msg.textContent = t; msg.className = "msg err"; };
-  const wid = crypto.randomUUID(), rows = []; let err = "";
+  const wid = editing || crypto.randomUUID(), rows = []; let err = "";
   const mk = (s, pos, parent) => {
     const r = { id: crypto.randomUUID(), workout_id: wid, parent_id: parent || null, position: pos, step_type: s.type, repeat_count: null,
       duration_type: s.dtype, duration_value: null, target_type: s.ttype, target_min: null, target_max: null };
@@ -186,13 +211,20 @@ async function save() {
   });
   if (err) return fail(err);
   const title = (wf.title || "").trim() || TYPES[wf.day_type];
-  const w = await db.from("workouts").insert({ id: wid, athlete_id: ath, coach_id: profile.id, workout_date: adding, title, day_type: wf.day_type, notes: wf.notes || "" });
-  if (w.error) return fail("Nie udało się zapisać treningu: " + w.error.message);
+  if (editing) {
+    const u = await db.from("workouts").update(ro ? { notes: wf.notes || "" } : { title, day_type: wf.day_type, notes: wf.notes || "" }).eq("id", wid);
+    if (u.error) return fail("Nie udało się zapisać zmian: " + u.error.message);
+    const d = await db.from("workout_steps").delete().eq("workout_id", wid);
+    if (d.error) return fail("Nie udało się zapisać zmian: " + d.error.message);
+  } else {
+    const w = await db.from("workouts").insert({ id: wid, athlete_id: ath, coach_id: profile.id, workout_date: adding, title, day_type: wf.day_type, notes: wf.notes || "" });
+    if (w.error) return fail("Nie udało się zapisać treningu: " + w.error.message);
+  }
   if (rows.length) {
     const s = await db.from("workout_steps").insert(rows);
-    if (s.error) { await db.from("workouts").delete().eq("id", wid); return fail("Nie udało się zapisać kroków: " + s.error.message); }
+    if (s.error) { if (!editing) await db.from("workouts").delete().eq("id", wid); return fail("Nie udało się zapisać kroków: " + s.error.message); }
   }
-  adding = null; load();
+  adding = null; editing = null; load();
 }
 
 /* ---------- Zdarzenia ---------- */
@@ -208,7 +240,9 @@ function onInput(e) {
 async function onClick(e) {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.v) { view = b.dataset.v; adding = null; sel = null; return load(); }
-  if (b.dataset.t) { sel = b.dataset.t; adding = null; return load(); }
+  if (b.dataset.t) { adding = null; editing = null; return openModal(b.dataset.t); }
+  if (b.dataset.edit) { const w = cache.find(x => x.id === b.dataset.edit); return w && openForm(w.workout_date, w); }
+  if (b.dataset.seen) { await db.from("workouts").update({ athlete_edited: false }).eq("id", b.dataset.seen); return load(); }
   if (b.dataset.add) return openForm(b.dataset.add);
   if (b.dataset.del) {
     if (!confirm("Usunąć ten trening?")) return;
@@ -222,7 +256,8 @@ async function onClick(e) {
     adding = null; sel = null; return load();
   }
   if (act === "today") { ref = new Date(); adding = null; sel = null; return load(); }
-  if (act === "cancel") { adding = null; return load(); }
+  if (act === "close") return closeModal();
+  if (act === "cancel") { adding = null; editing = null; return load(); }
   if (act === "save") return save();
   if (act === "astep") items.push(ns());
   else if (act === "arep") items.push({ repeat: true, count: "4", steps: [ns(), ns()] });
@@ -236,6 +271,14 @@ window.initCalendar = async function () {
   if (!profile) return;
   ro = profile.role !== "coach"; host = $(ro ? "athCal" : "coachCal"); ref = new Date(); sel = null; adding = null;
   if (!host.dataset.ready) { host.dataset.ready = "1"; host.addEventListener("click", onClick); host.addEventListener("input", onInput); }
+  if (!$("modal")) {
+    const m = document.createElement("div"); m.id = "modal"; m.className = "modal cal"; m.hidden = true;
+    m.innerHTML = '<div class="mbox" role="dialog" aria-modal="true" aria-label="Trening"><button class="btn ghost mx" data-act="close">Zamknij</button><div id="mbody"></div></div>';
+    document.body.appendChild(m);
+    m.addEventListener("click", e => { if (e.target === m) closeModal(); else onClick(e); });
+    m.addEventListener("input", onInput);
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && openDay) closeModal(); });
+  }
   shell();
   if (ro) { ath = profile.id; return load(); }
   ath = null;
