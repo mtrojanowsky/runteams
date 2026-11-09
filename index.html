@@ -21,7 +21,7 @@
 html,body{margin:0}
 body{background:var(--track);color:var(--ink);font:16px/1.5 var(--body);min-height:100vh}
 h1,h2,h3{font-family:var(--display);margin:0;line-height:1.05;letter-spacing:-.01em}
-.wrap{max-width:880px;margin:0 auto;padding:20px 16px 64px}
+.wrap{max-width:1080px;margin:0 auto;padding:20px 16px 64px}
 .brand{font-family:var(--display);font-weight:900;font-stretch:75%;font-size:30px}
 .brand i{font-style:normal;background:var(--lane);color:#161c24;padding:0 7px;margin-left:2px}
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0 20px}
@@ -55,6 +55,13 @@ input:focus-visible,button:focus-visible{outline:3px solid var(--lane);outline-o
 .inline>div{flex:1;min-width:200px}
 .inline .btn{margin-top:0}
 [hidden]{display:none!important}
+.app{display:grid;grid-template-columns:200px minmax(0,1fr);gap:20px;align-items:start}
+.nav{display:flex;flex-direction:column;gap:4px;position:sticky;top:12px}
+.nav button{font:inherit;font-weight:600;text-align:left;padding:10px 12px;border:0;border-left:4px solid transparent;background:none;color:var(--muted);cursor:pointer;border-radius:0 4px 4px 0}
+.nav button[aria-current=true]{color:var(--ink);background:var(--paper);border-left-color:var(--lane)}
+details.card summary{font-weight:700;cursor:pointer}
+details.card[open] summary{margin-bottom:6px}
+@media(max-width:720px){.app{grid-template-columns:1fr}.nav{flex-direction:row;overflow-x:auto;position:static}.nav button{white-space:nowrap;border-left:0;border-bottom:4px solid transparent;border-radius:0}.nav button[aria-current=true]{border-bottom-color:var(--lane)}}
 </style>
 </head>
 <body>
@@ -96,38 +103,53 @@ input:focus-visible,button:focus-visible{outline:3px solid var(--lane);outline-o
   </section>
 
   <!-- Panel trenera -->
-  <section id="coach" hidden>
-    <div class="card">
-      <h2>Nowa grupa</h2>
-      <form id="newGroupForm" class="inline">
-        <div>
-          <label for="groupName">Nazwa grupy</label>
-          <input type="text" id="groupName" maxlength="60">
+  <section id="coach" class="app" hidden>
+    <nav class="nav" aria-label="Menu"></nav>
+    <div>
+      <div data-pane="cal"><div id="coachCal"></div></div>
+      <div data-pane="groups" hidden>
+        <div class="card">
+          <h2>Nowa grupa</h2>
+          <form id="newGroupForm" class="inline">
+            <div>
+              <label for="groupName">Nazwa grupy</label>
+              <input type="text" id="groupName" maxlength="60">
+            </div>
+            <button class="btn" type="submit">Utwórz grupę</button>
+          </form>
+          <div class="msg" id="coachMsg" role="status"></div>
         </div>
-        <button class="btn" type="submit">Utwórz grupę</button>
-      </form>
-      <div class="msg" id="coachMsg" role="status"></div>
+        <div id="groupList"></div>
+      </div>
+      <div data-pane="account" hidden><div class="card"><h2>Konto</h2><p class="accInfo"></p><p class="muted">Zdjęcie profilowe i logo grupy dodamy w kolejnym etapie.</p></div></div>
     </div>
-    <div id="groupList"></div>
-    <div id="coachCal"></div>
   </section>
 
   <!-- Panel zawodnika -->
-  <section id="athlete" hidden>
-    <div class="card">
-      <h2>Dołącz do grupy</h2>
-      <p class="muted">Kod zaproszenia dostaniesz od swojego trenera.</p>
-      <form id="joinForm" class="inline">
-        <div>
-          <label for="joinCode">Kod zaproszenia</label>
-          <input type="text" id="joinCode" maxlength="16" autocapitalize="characters">
-        </div>
-        <button class="btn" type="submit">Dołącz</button>
-      </form>
-      <div class="msg" id="athMsg" role="status"></div>
+  <section id="athlete" class="app" hidden>
+    <nav class="nav" aria-label="Menu"></nav>
+    <div>
+      <div data-pane="cal"><div id="athCal"></div></div>
+      <div data-pane="act" hidden><div class="card"><h2>Aktywności</h2><p class="muted">Tu pojawią się Twoje treningi z zegarka (Garmin, Strava i inne). Ta funkcja jest w przygotowaniu.</p></div></div>
+      <div data-pane="analysis" hidden><div class="card"><h2>Analiza</h2><p class="muted">Obciążenie, forma i realizacja planu. Wkrótce.</p></div></div>
+      <div data-pane="races" hidden><div class="card"><h2>Starty</h2><p class="muted">Zaplanowane zawody i prognozy wyników. Wkrótce.</p></div></div>
+      <div data-pane="groups" hidden>
+        <details class="card" id="joinBox">
+          <summary id="joinSum">Dołącz do grupy</summary>
+          <p class="muted">Kod zaproszenia dostaniesz od swojego trenera.</p>
+          <form id="joinForm" class="inline">
+            <div>
+              <label for="joinCode">Kod zaproszenia</label>
+              <input type="text" id="joinCode" maxlength="16" autocapitalize="characters">
+            </div>
+            <button class="btn" type="submit">Dołącz</button>
+          </form>
+          <div class="msg" id="athMsg" role="status"></div>
+        </details>
+        <div id="myGroups"></div>
+      </div>
+      <div data-pane="account" hidden><div class="card"><h2>Konto</h2><p class="accInfo"></p><p class="muted">Zdjęcie profilowe i połączone zegarki dodamy w kolejnych etapach.</p></div></div>
     </div>
-    <div id="myGroups"></div>
-    <div id="athCal"></div>
   </section>
 </div>
 
@@ -182,6 +204,20 @@ $("authForm").onsubmit = async e => {
 };
 $("logout").onclick = () => db.auth.signOut();
 
+const NAVS = { coach: [["cal","Kalendarz"],["groups","Grupy"],["account","Konto"]],
+  athlete: [["cal","Kalendarz"],["act","Aktywności"],["analysis","Analiza"],["races","Starty"],["groups","Grupy"],["account","Konto"]] };
+function setPane(sec, name){
+  const el = $(sec);
+  el.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== name);
+  el.querySelectorAll("[data-go]").forEach(b => b.setAttribute("aria-current", b.dataset.go === name));
+}
+function buildNav(sec){
+  const n = $(sec).querySelector("nav");
+  n.innerHTML = NAVS[sec].map(([k, l]) => `<button data-go="${k}">${l}</button>`).join("");
+  n.onclick = e => { const b = e.target.closest("button"); if (b) setPane(sec, b.dataset.go); };
+  setPane(sec, "cal");
+}
+
 /* ---------- Start i zmiana sesji ---------- */
 async function route(session){
   if (!session) { profile = null; return show("auth"); }
@@ -189,7 +225,11 @@ async function route(session){
   if (error || !data) { await db.auth.signOut(); return show("auth"); }
   profile = data;
   $("whoText").innerHTML = "<b>" + esc(profile.full_name) + "</b> · " + (profile.role === "coach" ? "trener" : "zawodnik");
-  if (profile.role === "coach") { show("coach"); loadCoach(); } else { show("athlete"); loadAthlete(); }
+  const sec = profile.role === "coach" ? "coach" : "athlete";
+  buildNav(sec);
+  document.querySelectorAll(".accInfo").forEach(el => el.textContent = profile.full_name + " · " + (sec === "coach" ? "trener" : "zawodnik"));
+  show(sec);
+  if (sec === "coach") loadCoach(); else loadAthlete();
   if (window.initCalendar) initCalendar();
 }
 db.auth.onAuthStateChange((_event, session) => { setTimeout(() => route(session), 0); });
@@ -238,6 +278,8 @@ async function loadAthlete(){
     .select("group_id, groups(name, profiles!coach_id(full_name))");
   const box = $("myGroups");
   if (error) return box.innerHTML = '<div class="card muted">Nie udało się wczytać grup. Odśwież stronę.</div>';
+  $("joinBox").open = !data.length;
+  $("joinSum").textContent = data.length ? "Dołącz do kolejnej grupy" : "Dołącz do grupy";
   if (!data.length) return box.innerHTML = '<div class="card muted">Nie należysz jeszcze do żadnej grupy.</div>';
   box.innerHTML = data.map(m => `
     <div class="card" data-g="${esc(m.group_id)}">

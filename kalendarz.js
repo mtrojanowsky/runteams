@@ -13,7 +13,7 @@ const opts = (o, sel) => Object.keys(o).map(k => `<option value="${k}"${k === se
 const pc = x => { x = Math.round(x); return Math.floor(x / 60) + ":" + pad(x % 60); };
 const parsePace = t => { const m = /^(\d{1,2}):([0-5]\d)$/.exec(String(t).trim()); return m ? +m[1] * 60 + +m[2] : null; };
 
-let ath = null, mon = monOf(new Date()), ro = true, host = null, adding = null, items = [], wf = {};
+let ath = null, ref = new Date(), view = "list", sel = null, ro = true, host = null, adding = null, items = [], wf = {};
 
 document.head.insertAdjacentHTML("beforeend", "<style>" +
 ".cal .wkbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 4px}" +
@@ -29,6 +29,17 @@ document.head.insertAdjacentHTML("beforeend", "<style>" +
 ".cal .rep{border-left:4px solid var(--lane);padding-left:10px;margin:10px 0}" +
 ".cal .form{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:12px;margin:8px 0}" +
 ".cal .day>.btn{margin-top:8px}" +
+".cal .seg{display:inline-flex;margin-top:10px}" +
+".cal .seg button{font:inherit;font-weight:600;padding:7px 14px;border:1px solid var(--line);background:none;color:var(--muted);cursor:pointer}" +
+".cal .seg button[aria-pressed=true]{background:var(--asphalt);color:#fff;border-color:var(--asphalt)}" +
+".cal .mgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-top:8px}" +
+".cal .mh span{font-size:13px;color:var(--muted);text-align:center}" +
+".cal .tile{font:inherit;color:var(--ink);text-align:left;background:var(--track);border:1px solid var(--line);border-radius:4px;padding:4px;min-height:84px;cursor:pointer;display:flex;flex-direction:column;gap:3px;min-width:0}" +
+".cal .wk .tile{min-height:150px}.cal .tile.out{opacity:.45}.cal .tile.today{border-color:var(--lane);border-width:2px}.cal .tile.sel{outline:3px solid var(--lane)}" +
+".cal .tile .dn{font-weight:700;font-size:13px}" +
+".cal .chip{display:block;border-left:5px solid;background:var(--paper);border-radius:3px;padding:2px 5px;font-size:12px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}" +
+".cal .wk .chip{white-space:normal}.cal .chip small{display:block;color:var(--muted)}.cal #dayDetail{margin-top:12px}" +
+"@media(max-width:720px){.cal .mgrid.wk{grid-template-columns:1fr}.cal .mgrid.wk .tile{min-height:0}.cal .tile{min-height:56px}.cal .chip{font-size:11px}}" +
 "</style>");
 
 /* ---------- Formatowanie ---------- */
@@ -57,29 +68,58 @@ function woHtml(w) {
     (ro ? "" : `<button class="btn ghost" data-del="${esc(w.id)}">Usuń trening</button>`) + `</div>`;
 }
 
-/* ---------- Widok tygodnia ---------- */
+/* ---------- Widoki kalendarza ---------- */
+const COL = { rest: "#8a96a3", recovery: "#4fb3a5", easy: "#5aa9e6", steady: "#e6c33c", tempo: "#f08a24", intervals: "#e5484d", speed: "#d6336c", long: "#8e6bd1", race: "#d6ff3f", strength: "#a07855", other: "#8a96a3" };
+const ym = d => new Date(d.getFullYear(), d.getMonth(), 1);
+const toD = k => new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10));
+function range() {
+  if (view === "month") {
+    const s = monOf(ym(ref)), days = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
+    return [s, addDays(s, Math.ceil((days + (ym(ref).getDay() + 6) % 7) / 7) * 7 - 1)];
+  }
+  const s = monOf(ref); return [s, addDays(s, 6)];
+}
+function km(w) {
+  const all = w.workout_steps || []; let m = 0;
+  all.forEach(s => { if (!s.parent_id && s.step_type !== "repeat" && s.duration_type === "distance") m += +s.duration_value; });
+  all.filter(s => s.step_type === "repeat").forEach(r => all.filter(c => c.parent_id === r.id && c.duration_type === "distance").forEach(c => { m += +c.duration_value * r.repeat_count; }));
+  return m ? " · ok. " + (Math.round(m / 100) / 10).toString().replace(".", ",") + " km" : "";
+}
+const chip = (w, full) => `<span class="chip" style="border-left-color:${COL[w.day_type]}"><b>${esc(w.title)}</b>${full ? `<small>${esc(TYPES[w.day_type])}${km(w)}</small>` : ""}</span>`;
+const dayBlock = (d, ws, today) => { const k = iso(d);
+  return `<div class="day${k === today ? " today" : ""}" data-d="${k}"><h4>${wd(d)}, ${fd(d)}</h4>` +
+    (ws.length ? ws.map(woHtml).join("") : '<div class="muted">Brak zaplanowanego treningu</div>') +
+    (ro ? "" : `<button class="btn ghost" data-add="${k}">Dodaj trening</button>`) + `<div class="slot"></div></div>`; };
+
 function shell() {
-  host.innerHTML = `<div class="card cal"><h2>${ro ? "Mój tydzień" : "Kalendarz zawodnika"}</h2>` +
+  host.innerHTML = `<div class="card cal"><h2>${ro ? "Mój kalendarz" : "Kalendarz zawodnika"}</h2>` +
     (ro ? "" : `<label for="athSel">Zawodnik</label><select id="athSel"></select>`) +
-    `<div class="wkbar"><button class="btn ghost" data-act="prev">Poprzedni tydzień</button><b id="calRange"></b>` +
-    `<button class="btn ghost" data-act="today">Ten tydzień</button><button class="btn ghost" data-act="next">Następny tydzień</button></div>` +
+    `<div class="seg" role="group" aria-label="Widok kalendarza"><button data-v="list">Lista</button><button data-v="week">Tydzień</button><button data-v="month">Miesiąc</button></div>` +
+    `<div class="wkbar"><button class="btn ghost" data-act="prev">Poprzedni</button><b id="calRange"></b>` +
+    `<span><button class="btn ghost" data-act="today">Dziś</button> <button class="btn ghost" data-act="next">Następny</button></span></div>` +
     `<div id="calBody"></div></div>`;
 }
 async function load() {
   const box = $("calBody");
   if (!ath) { box.innerHTML = '<p class="muted">Gdy pierwszy zawodnik dołączy do Twojej grupy, pojawi się tutaj.</p>'; return; }
+  const [a, b] = range();
   const { data, error } = await db.from("workouts")
     .select("id, workout_date, title, day_type, notes, workout_steps(*)")
-    .eq("athlete_id", ath).gte("workout_date", iso(mon)).lte("workout_date", iso(addDays(mon, 6))).order("created_at");
+    .eq("athlete_id", ath).gte("workout_date", iso(a)).lte("workout_date", iso(b)).order("created_at");
   if (error) { box.innerHTML = '<p class="muted">Nie udało się wczytać kalendarza. Odśwież stronę.</p>'; return; }
-  $("calRange").textContent = fd(mon) + " – " + fd(addDays(mon, 6));
-  const today = iso(new Date());
-  box.innerHTML = [0, 1, 2, 3, 4, 5, 6].map(n => {
-    const d = addDays(mon, n), k = iso(d), ws = data.filter(w => w.workout_date === k);
-    return `<div class="day${k === today ? " today" : ""}" data-d="${k}"><h4>${wd(d)}, ${fd(d)}</h4>` +
-      (ws.length ? ws.map(woHtml).join("") : '<div class="muted">Brak zaplanowanego treningu</div>') +
-      (ro ? "" : `<button class="btn ghost" data-add="${k}">Dodaj trening</button>`) + `<div class="slot"></div></div>`;
+  const mth = view === "month";
+  $("calRange").textContent = mth ? (t => t.charAt(0).toUpperCase() + t.slice(1))(ref.toLocaleDateString("pl-PL", { month: "long", year: "numeric" })) : fd(a) + " – " + fd(b);
+  host.querySelectorAll("[data-v]").forEach(x => x.setAttribute("aria-pressed", x.dataset.v === view));
+  const today = iso(new Date()), by = k => data.filter(w => w.workout_date === k);
+  if (view === "list") { box.innerHTML = [0, 1, 2, 3, 4, 5, 6].map(n => { const d = addDays(a, n); return dayBlock(d, by(iso(d)), today); }).join(""); return; }
+  const n = Math.round((b - a) / 864e5) + 1;
+  if (!sel || sel < iso(a) || sel > iso(b)) sel = today >= iso(a) && today <= iso(b) ? today : iso(a);
+  const cells = Array.from({ length: n }, (_, i) => {
+    const d = addDays(a, i), k = iso(d), out = mth && d.getMonth() !== ref.getMonth();
+    return `<button class="tile${k === sel ? " sel" : ""}${k === today ? " today" : ""}${out ? " out" : ""}" data-t="${k}"><span class="dn">${mth ? d.getDate() : wd(d).slice(0, 3) + " " + d.getDate()}</span>${by(k).map(w => chip(w, !mth)).join("")}</button>`;
   }).join("");
+  box.innerHTML = (mth ? '<div class="mgrid mh">' + ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"].map(x => `<span>${x}</span>`).join("") + "</div>" : "") +
+    `<div class="mgrid${mth ? "" : " wk"}">${cells}</div><div id="dayDetail">${dayBlock(toD(sel), by(sel), today)}</div>`;
 }
 
 /* ---------- Kreator treningu ---------- */
@@ -167,6 +207,8 @@ function onInput(e) {
 }
 async function onClick(e) {
   const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.v) { view = b.dataset.v; adding = null; sel = null; return load(); }
+  if (b.dataset.t) { sel = b.dataset.t; adding = null; return load(); }
   if (b.dataset.add) return openForm(b.dataset.add);
   if (b.dataset.del) {
     if (!confirm("Usunąć ten trening?")) return;
@@ -174,9 +216,12 @@ async function onClick(e) {
   }
   const act = b.dataset.act; if (!act) return;
   const i = b.dataset.i, j = b.dataset.j;
-  if (act === "prev") { mon = addDays(mon, -7); return load(); }
-  if (act === "next") { mon = addDays(mon, 7); return load(); }
-  if (act === "today") { mon = monOf(new Date()); return load(); }
+  if (act === "prev" || act === "next") {
+    const st = act === "next" ? 1 : -1;
+    ref = view === "month" ? new Date(ref.getFullYear(), ref.getMonth() + st, 1) : addDays(ref, 7 * st);
+    adding = null; sel = null; return load();
+  }
+  if (act === "today") { ref = new Date(); adding = null; sel = null; return load(); }
   if (act === "cancel") { adding = null; return load(); }
   if (act === "save") return save();
   if (act === "astep") items.push(ns());
@@ -189,7 +234,7 @@ async function onClick(e) {
 /* ---------- Start ---------- */
 window.initCalendar = async function () {
   if (!profile) return;
-  ro = profile.role !== "coach"; host = $(ro ? "athCal" : "coachCal"); mon = monOf(new Date()); adding = null;
+  ro = profile.role !== "coach"; host = $(ro ? "athCal" : "coachCal"); ref = new Date(); sel = null; adding = null;
   if (!host.dataset.ready) { host.dataset.ready = "1"; host.addEventListener("click", onClick); host.addEventListener("input", onInput); }
   shell();
   if (ro) { ath = profile.id; return load(); }
